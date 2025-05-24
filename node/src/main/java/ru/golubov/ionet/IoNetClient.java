@@ -1,13 +1,12 @@
 package ru.golubov.ionet;
 
 import lombok.AllArgsConstructor;
-import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
-import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import ru.golubov.service.RedisHistoryService;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -21,36 +20,59 @@ public class IoNetClient {
     @Value("${ionet.model}")
     private final String model;
     private final RestTemplate restTemplate;
+    private final RedisHistoryService redisHistoryService;
 
     @SneakyThrows
-    public ChatCompletionResponse createChatCompletion(String message) {
+    public ChatCompletionResponse createChatCompletion(Long userId, String message) {
         String url = "https://api.intelligence.io.solutions/api/v1/chat/completions";
 
-        HttpHeaders httpHeaders = new HttpHeaders();
-        httpHeaders.set("Authorization", "Bearer " + token);
-        httpHeaders.setContentType(MediaType.APPLICATION_JSON);
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token);
+        headers.setContentType(MediaType.APPLICATION_JSON);
 
-        HttpEntity<String> httpEntity = new HttpEntity<>(getJsonForHttpEntity(message), httpHeaders);
+        String requestBody = createRequestBody(userId.toString(), message);
+        HttpEntity<String> entity = new HttpEntity<>(requestBody, headers);
 
-        ResponseEntity<ChatCompletionResponse> responseEntity = restTemplate.exchange(
-                url, HttpMethod.POST, httpEntity, ChatCompletionResponse.class
-        );
 
-        return responseEntity.getBody();
+        return restTemplate.exchange(url, HttpMethod.POST, entity, ChatCompletionResponse.class).getBody();
     }
 
-    @SneakyThrows
-    private String getJsonForHttpEntity(String message) {
-        ObjectMapper mapper = new ObjectMapper();
+    private String createRequestBody(String userId, String message) {
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            List<Map<String, String>> messages = new ArrayList<>();
 
-        Map<String, Object> requestBody = new HashMap<>();
-        requestBody.put("model", model);
+            messages.add(Map.of("role", "system", "content", "You are a helpful assistant."));
 
-        List<Map<String, String>> messages = new ArrayList<>();
-        messages.add(Map.of("role", "system", "content", "You are a helpful assistant."));
-        messages.add(Map.of("role", "user", "content", message));
-        requestBody.put("messages", messages);
+            List<Map<String, String>> context = redisHistoryService.getUserContext(userId);
 
-        return mapper.writeValueAsString(requestBody);
+            List<Map<String, String>> filteredContext = new ArrayList<>();
+            String lastRole = "system";
+            for (Map<String, String> msg : context) {
+                String currentRole = msg.get("role");
+                if (lastRole.equals("system") && currentRole.equals("user") ||
+                        lastRole.equals("user") && currentRole.equals("assistant") ||
+                        lastRole.equals("assistant") && currentRole.equals("user")) {
+                    filteredContext.add(msg);
+                    lastRole = currentRole;
+                }
+            }
+
+            messages.addAll(filteredContext);
+
+            if (!lastRole.equals("user")) {
+                messages.add(Map.of("role", "user", "content", message));
+            } else {
+                throw new IllegalStateException("Cannot add user message after another user message");
+            }
+
+            Map<String, Object> body = Map.of(
+                    "model", model,
+                    "messages", messages
+            );
+            return mapper.writeValueAsString(body);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to create JSON request body", e);
+        }
     }
 }
