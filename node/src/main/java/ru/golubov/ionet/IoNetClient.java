@@ -2,6 +2,7 @@ package ru.golubov.ionet;
 
 import lombok.AllArgsConstructor;
 import lombok.SneakyThrows;
+import lombok.extern.log4j.Log4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 @AllArgsConstructor
+@Log4j
 public class IoNetClient {
     @Value("${ionet.token}")
     private final String token;
@@ -70,7 +72,10 @@ public class IoNetClient {
                     "model", model,
                     "messages", messages
             );
-            return mapper.writeValueAsString(body);
+
+            String jsonBody = mapper.writeValueAsString(body);
+            log.info("Формируемый JSON: %s".formatted(jsonBody));
+            return jsonBody;
         } catch (Exception e) {
             throw new RuntimeException("Failed to create JSON request body", e);
         }

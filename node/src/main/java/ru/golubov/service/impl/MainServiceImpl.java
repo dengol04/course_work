@@ -5,6 +5,7 @@ import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
+import ru.golubov.command.TelegramBotCommandsDispatcher;
 import ru.golubov.dao.AppUserDAO;
 import ru.golubov.dao.RawDataDAO;
 import ru.golubov.ionet.IoNetClient;
@@ -23,9 +24,14 @@ public class MainServiceImpl implements MainService {
     private final ProducerService producerService;
     private final AppUserDAO appUserDAO;
     private final IoNetService ioNetService;
+    private final TelegramBotCommandsDispatcher telegramBotCommandsDispatcher;
 
     @Override
     public void processTextMessage(Update update) {
+        if (telegramBotCommandsDispatcher.isCommand(update)) {
+            producerService.producerAnswer(telegramBotCommandsDispatcher.processCommand(update));
+            return;
+        }
         saveRawData(update);
         var textMessage = update.getMessage();
         var telegramUser = textMessage.getFrom();
@@ -33,11 +39,51 @@ public class MainServiceImpl implements MainService {
 
         var textResponse = ioNetService.getResponseFromChatToTextMessage(appUser.getId(), textMessage.getText());
 
+        String escapedText = escapeMarkdownV2(textResponse);
+
         var message = update.getMessage();
-        var sendMessage = new SendMessage();
-        sendMessage.setChatId(message.getChatId().toString());
-        sendMessage.setText(textResponse);
-        producerService.producerAnswer(sendMessage);
+        var sendMessage = SendMessage.builder()
+                .chatId(message.getChatId())
+                .text(escapedText)
+                .parseMode("Markdown")
+                .build();
+        if (escapedText.length() <= 4096) {
+            producerService.producerAnswer(sendMessage);
+        } else {
+            for (int i = 0; i < escapedText.length(); i += 4000) {
+                String part = escapedText.substring(i, Math.min(escapedText.length(), i + 4000));
+                SendMessage partMessage = new SendMessage();
+                partMessage.setChatId(sendMessage.getChatId());
+                partMessage.setParseMode("Markdown");
+                partMessage.setText(part);
+                producerService.producerAnswer(partMessage);
+            }
+        }
+    }
+
+    private String escapeMarkdownV2(String text) {
+        if (text == null) {
+            return "";
+        }
+        // Экранируем все зарезервированные символы MarkdownV2
+        return text.replace("_", "\\_")
+                .replace("*", "\\*")
+                .replace("[", "\\[")
+                .replace("]", "\\]")
+                .replace("(", "\\(")
+                .replace(")", "\\)")
+                .replace("~", "\\~")
+                .replace("`", "\\`")
+                .replace(">", "\\>")
+                .replace("#", "\\#")
+                .replace("+", "\\+")
+                .replace("-", "\\-")
+                .replace("=", "\\=")
+                .replace("|", "\\|")
+                .replace("{", "\\{")
+                .replace("}", "\\}")
+                .replace(".", "\\.")
+                .replace("!", "\\!");
     }
 
     private AppUser findOrSaveAppUser(User telegramUser) {

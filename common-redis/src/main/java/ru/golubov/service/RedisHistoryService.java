@@ -50,4 +50,13 @@ public class RedisHistoryService {
             throw new RuntimeException("Failed to retrieve user context from Redis", e);
         }
     }
+
+    public void clearUserContext(String userId) {
+        try {
+            String key = REQUEST_KEY_PREFIX + userId;
+            redisTemplate.delete(key);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to clear user context from Redis", e);
+        }
+    }
 }

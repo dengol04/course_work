@@ -2,6 +2,7 @@ package ru.golubov.controller;
 
 import lombok.extern.log4j.Log4j;
 import org.springframework.stereotype.Component;
+import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import ru.golubov.service.UpdateProducer;
@@ -64,6 +65,7 @@ public class UpdateController {
     }
 
     public void setView(SendMessage sendMessage) {
+        sendMessage.setParseMode("Markdown");
         telegramBot.sendAnswerMessage(sendMessage);
     }
 
