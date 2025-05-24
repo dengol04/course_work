@@ -65,7 +65,6 @@ public class UpdateController {
     }
 
     public void setView(SendMessage sendMessage) {
-        sendMessage.setParseMode("Markdown");
         telegramBot.sendAnswerMessage(sendMessage);
     }
 

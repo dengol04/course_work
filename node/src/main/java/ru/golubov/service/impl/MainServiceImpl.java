@@ -1,6 +1,7 @@
 package ru.golubov.service.impl;
 
 import lombok.AllArgsConstructor;
+import lombok.extern.log4j.Log4j;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
@@ -17,8 +18,12 @@ import ru.golubov.service.ProducerService;
 import ru.golubov.service.RedisHistoryService;
 import ru.golubov.service.UserRequestService;
 
+import java.util.ArrayList;
+import java.util.List;
+
 @AllArgsConstructor
 @Service
+@Log4j
 public class MainServiceImpl implements MainService {
     private final RawDataDAO rawDataDAO;
     private final ProducerService producerService;
@@ -39,51 +44,27 @@ public class MainServiceImpl implements MainService {
 
         var textResponse = ioNetService.getResponseFromChatToTextMessage(appUser.getId(), textMessage.getText());
 
-        String escapedText = escapeMarkdownV2(textResponse);
-
         var message = update.getMessage();
         var sendMessage = SendMessage.builder()
                 .chatId(message.getChatId())
-                .text(escapedText)
-                .parseMode("Markdown")
+                .text(textResponse)
                 .build();
-        if (escapedText.length() <= 4096) {
+        if (textResponse.length() <= 4096) {
             producerService.producerAnswer(sendMessage);
         } else {
-            for (int i = 0; i < escapedText.length(); i += 4000) {
-                String part = escapedText.substring(i, Math.min(escapedText.length(), i + 4000));
-                SendMessage partMessage = new SendMessage();
-                partMessage.setChatId(sendMessage.getChatId());
-                partMessage.setParseMode("Markdown");
-                partMessage.setText(part);
-                producerService.producerAnswer(partMessage);
-            }
+            sendLargeMessage(sendMessage);
         }
     }
 
-    private String escapeMarkdownV2(String text) {
-        if (text == null) {
-            return "";
+    private void sendLargeMessage(SendMessage sendMessage) {
+        String textResponse = sendMessage.getText();
+        for (int i = 0; i < textResponse.length(); i += 4000) {
+            String part = textResponse.substring(i, Math.min(textResponse.length(), i + 4000));
+            SendMessage partMessage = new SendMessage();
+            partMessage.setChatId(sendMessage.getChatId());
+            partMessage.setText(part);
+            producerService.producerAnswer(partMessage);
         }
-        // Экранируем все зарезервированные символы MarkdownV2
-        return text.replace("_", "\\_")
-                .replace("*", "\\*")
-                .replace("[", "\\[")
-                .replace("]", "\\]")
-                .replace("(", "\\(")
-                .replace(")", "\\)")
-                .replace("~", "\\~")
-                .replace("`", "\\`")
-                .replace(">", "\\>")
-                .replace("#", "\\#")
-                .replace("+", "\\+")
-                .replace("-", "\\-")
-                .replace("=", "\\=")
-                .replace("|", "\\|")
-                .replace("{", "\\{")
-                .replace("}", "\\}")
-                .replace(".", "\\.")
-                .replace("!", "\\!");
     }
 
     private AppUser findOrSaveAppUser(User telegramUser) {
