@@ -2,10 +2,12 @@ package ru.golubov.service.impl;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.log4j.Log4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.objects.Update;
 import org.telegram.telegrambots.meta.api.objects.User;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 import ru.golubov.command.TelegramBotCommandsDispatcher;
 import ru.golubov.dao.AppUserDAO;
 import ru.golubov.dao.RawDataDAO;
@@ -13,15 +15,11 @@ import ru.golubov.ionet.IoNetClient;
 import ru.golubov.entity.AppUser;
 import ru.golubov.entity.RawData;
 import ru.golubov.ionet.IoNetService;
-import ru.golubov.service.MainService;
-import ru.golubov.service.ProducerService;
-import ru.golubov.service.RedisHistoryService;
-import ru.golubov.service.UserRequestService;
+import ru.golubov.service.*;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-
-@AllArgsConstructor
 @Service
 @Log4j
 public class MainServiceImpl implements MainService {
@@ -30,6 +28,18 @@ public class MainServiceImpl implements MainService {
     private final AppUserDAO appUserDAO;
     private final IoNetService ioNetService;
     private final TelegramBotCommandsDispatcher telegramBotCommandsDispatcher;
+    private final DocumentsExtractService documentsExtractService;
+    @Value("${bot.token}")
+    private String botToken;
+
+    public MainServiceImpl(RawDataDAO rawDataDAO, ProducerService producerService, AppUserDAO appUserDAO, IoNetService ioNetService, TelegramBotCommandsDispatcher telegramBotCommandsDispatcher, DocumentsExtractService documentsExtractService) {
+        this.rawDataDAO = rawDataDAO;
+        this.producerService = producerService;
+        this.appUserDAO = appUserDAO;
+        this.ioNetService = ioNetService;
+        this.telegramBotCommandsDispatcher = telegramBotCommandsDispatcher;
+        this.documentsExtractService = documentsExtractService;
+    }
 
     @Override
     public void processTextMessage(Update update) {
@@ -65,6 +75,55 @@ public class MainServiceImpl implements MainService {
             partMessage.setText(part);
             producerService.producerAnswer(partMessage);
         }
+    }
+
+    @Override
+    public void processDocMessage(Update update) {
+        if (!update.getMessage().hasDocument()) {
+            throw new IllegalArgumentException("Message has no document");
+        }
+        var message = update.getMessage();
+        var document = message.getDocument();
+        var chatId = message.getChatId().toString();
+        var fileName = document.getFileName().toLowerCase();
+
+        String fileId = document.getFileId();
+        String fileUrl;
+        try {
+            fileUrl = "https://api.telegram.org/file/bot" + botToken + "/" + documentsExtractService.getFilePath(fileId);
+        } catch (TelegramApiException ignored) {
+            fileUrl = "";
+        }
+
+        String text;
+        try {
+            if (fileName.endsWith(".pdf")) {
+                text = documentsExtractService.extractTextFromPdf(fileUrl);
+            } else if (fileName.endsWith(".docx")) {
+                text = documentsExtractService.extractTextFromDocx(fileUrl);
+            } else {
+                text = documentsExtractService.extractTextFromTxt(fileUrl);
+            }
+        } catch (IOException ignored) {
+            text = "";
+        }
+        if (text.isEmpty()) {
+            sendErrorMessage(update, "Не удалось извлечь текст из документа.");
+            return;
+        }
+
+        text += " " + update.getMessage().getText();
+        update.getMessage().setText(text);
+        processTextMessage(update);
+    }
+
+    private void sendErrorMessage(Update update, String text) {
+        var sendMessage = SendMessage.builder()
+                .chatId(update.getMessage().getChatId())
+                .text(text)
+                .build();
+
+        producerService.producerAnswer(sendMessage);
     }
 
     private AppUser findOrSaveAppUser(User telegramUser) {

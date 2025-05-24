@@ -41,12 +41,13 @@ public class UpdateController {
 
     private void distributeMessagesByType(Update update) {
         var message = update.getMessage();
-        if (message.hasText()) {
-            processTextMessage(update);
-        } else if (message.hasDocument()) {
+
+        if (message.hasDocument()) {
             processDocMessage(update);
         } else if (message.hasPhoto()) {
             processPhotoMessage(update);
+        } else if (message.hasText()) {
+            processTextMessage(update);
         } else {
             setUnsupportedMessageTypeView(update);
         }
