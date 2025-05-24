@@ -11,6 +11,7 @@ import ru.golubov.entity.AppUser;
 import ru.golubov.entity.RawData;
 import ru.golubov.service.MainService;
 import ru.golubov.service.ProducerService;
+import ru.golubov.service.RedisHistoryService;
 import ru.golubov.service.UserRequestService;
 
 @Service
@@ -20,13 +21,15 @@ public class MainServiceImpl implements MainService {
     private final AppUserDAO appUserDAO;
     private final UserRequestService userRequestService;
     private final IoNetClient ioNetClient;
+    private final RedisHistoryService redisHistoryService;
 
-    public MainServiceImpl(RawDataDAO rawDataDAO, ProducerService producerService, AppUserDAO appUserDAO, UserRequestService userRequestService, IoNetClient ioNetClient) {
+    public MainServiceImpl(RawDataDAO rawDataDAO, ProducerService producerService, AppUserDAO appUserDAO, UserRequestService userRequestService, IoNetClient ioNetClient, RedisHistoryService redisHistoryService) {
         this.rawDataDAO = rawDataDAO;
         this.producerService = producerService;
         this.appUserDAO = appUserDAO;
         this.userRequestService = userRequestService;
         this.ioNetClient = ioNetClient;
+        this.redisHistoryService = redisHistoryService;
     }
 
     @Override
@@ -36,7 +39,8 @@ public class MainServiceImpl implements MainService {
         var telegramUser = textMessage.getFrom();
         var appUser = findOrSaveAppUser(telegramUser);
 
-        userRequestService.saveUserRequest(appUser.getId(), textMessage.getText());
+        //userRequestService.saveUserRequest(appUser.getId(), textMessage.getText());
+        redisHistoryService.saveUserRequest(appUser.getId().toString(), textMessage.getText());
 
         var chatCompletionResponse = ioNetClient.createChatCompletion(textMessage.getText());
         var textResponse = chatCompletionResponse
@@ -44,6 +48,8 @@ public class MainServiceImpl implements MainService {
                 .getFirst()
                 .message()
                 .content();
+
+        redisHistoryService.saveUserResponse(appUser.getId().toString(), textResponse);
 
         var message = update.getMessage();
         var sendMessage = new SendMessage();
